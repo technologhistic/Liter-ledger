@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Litre Ledger</title>
+<style>
+:root{--blue:#1d4ed8;--blue-dark:#1e3a8a;--blue-soft:#e0e9ff;--bg:#f3f6fb;--card:#fff;--ink:#0f172a;--muted:#475569;--line:#d8e0ec;--red:#b91c1c;--green:#047857}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-padding-top:80px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.45}
+header{position:sticky;top:0;z-index:10;background:var(--blue);color:#fff;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 12px;display:flex;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:1.2rem}
+header span{font-size:.9rem;opacity:.9}
+main{max-width:640px;margin:0 auto;padding:16px 16px calc(100px + env(safe-area-inset-bottom,0px))}
+.tab{display:none}.tab.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+h2{font-size:1.1rem;margin:0 0 12px}
+label{display:block;font-weight:600;font-size:.95rem;margin-bottom:6px}
+.hint{font-weight:400;color:var(--muted)}
+input,select{width:100%;font:inherit;color:var(--ink);background:#fff;border:2px solid var(--line);border-radius:12px;padding:12px;min-height:52px}
+input:focus,select:focus,button:focus-visible{outline:3px solid var(--blue);outline-offset:1px;border-color:var(--blue)}
+.field{margin-bottom:14px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:block;width:100%;font:inherit;font-weight:700;font-size:1.05rem;min-height:54px;border-radius:12px;border:2px solid var(--blue);background:var(--blue);color:#fff;cursor:pointer;padding:10px 16px}
+.btn.ghost{background:#fff;color:var(--blue)}
+.btn.danger{background:#fff;color:var(--red);border-color:var(--red)}
+.stack{display:grid;gap:10px}
+.total-box{background:var(--blue-soft);border-radius:12px;padding:14px;margin-bottom:14px;text-align:center}
+.total-box small{display:block;color:var(--muted);font-weight:600}
+.total-box b{font-size:2rem;color:var(--blue-dark)}
+.sum{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.sum div{background:var(--blue);color:#fff;border-radius:14px;padding:14px}
+.sum small{display:block;opacity:.9;font-weight:600}
+.sum b{display:block;font-size:1.8rem;line-height:1.2;overflow-wrap:anywhere}
+ul{list-style:none;margin:0;padding:0}
+li{padding:12px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;align-items:center}
+li:first-child{border-top:0}
+li .l{min-width:0}
+.name{font-weight:700}
+.meta{color:var(--muted);font-size:.9rem}
+.amt{font-weight:700;white-space:nowrap}
+.acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.link{font:inherit;font-weight:600;border:0;background:none;color:var(--blue);min-height:44px;padding:0 8px;cursor:pointer}
+.link.del{color:var(--red)}
+.empty{color:var(--muted);margin:0}
+.msg{margin:10px 0 0;font-weight:600;min-height:1.3em}
+.msg.ok{color:var(--green)}.msg.err{color:var(--red)}
+.edit{display:flex;gap:8px;align-items:center;width:100%}
+.edit input{min-height:48px}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:10;background:#fff;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{font:inherit;font-weight:700;font-size:.8rem;border:0;background:none;color:var(--muted);min-height:62px;cursor:pointer;padding:6px 2px;border-top:4px solid transparent}
+nav button[aria-current="page"]{color:var(--blue);border-top-color:var(--blue);background:var(--blue-soft)}
+</style>
+</head>
+<body>
+<header><h1>Litre Ledger</h1><span id="today"></span></header>
+<main>
+
+<section class="tab on" id="t-sell">
+  <div class="card">
+    <h2>Record a sale</h2>
+    <div class="field"><label for="sItem">Item</label><select id="sItem"></select></div>
+    <div class="two field">
+      <div><label for="sLit">Litres sold</label><input id="sLit" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>
+      <div><label for="sPrice">Price per litre <span class="hint">(optional)</span></label><input id="sPrice" type="number" inputmode="decimal" min="0" step="any"></div>
+    </div>
+    <div class="total-box"><small>Total for this sale</small><b id="sTotal">0.00</b></div>
+    <button class="btn" id="sSave">Save sale</button>
+    <p class="msg" id="sMsg" role="status"></p>
+  </div>
+  <div class="sum"><div><small>Litres today</small><b id="dLit">0</b></div><div><small>Amount today</small><b id="dAmt">0.00</b></div></div>
+  <div class="card"><h2>Today’s sales</h2><ul id="dList"></ul></div>
+</section>
+
+<section class="tab" id="t-items">
+  <div class="card"><h2>Your items</h2><ul id="iList"></ul></div>
+  <div class="card">
+    <h2>Add a new item</h2>
+    <div class="field"><label for="nName">Item name</label><input id="nName" type="text" placeholder="For example: Milk"></div>
+    <div class="field"><label for="nPrice">Cost of 1 litre</label><input id="nPrice" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>
+    <button class="btn" id="nAdd">Add item</button>
+    <p class="msg" id="nMsg" role="status"></p>
+  </div>
+</section>
+
+<section class="tab" id="t-month">
+  <div class="card"><div class="field" style="margin:0"><label for="mPick">Choose a month</label><input id="mPick" type="month"></div></div>
+  <div class="sum"><div><small>Total litres</small><b id="mLit">0</b></div><div><small>Total amount</small><b id="mAmt">0.00</b></div></div>
+  <div class="card"><h2>By item</h2><ul id="mBy"></ul></div>
+  <div class="card"><h2>All sales this month</h2><ul id="mList"></ul></div>
+</section>
+
+<section class="tab" id="t-hist">
+  <div class="card"><h2>All sales, newest first</h2><ul id="hList"></ul></div>
+  <div class="card">
+    <h2>Backup and data</h2>
+    <div class="stack">
+      <button class="btn" id="exp">Export backup (JSON file)</button>
+      <button class="btn ghost" id="impBtn">Import backup</button>
+      <input id="impFile" type="file" accept=".json,application/json" hidden>
+      <button class="btn danger" id="clr">Clear all data</button>
+    </div>
+    <p class="msg" id="bMsg" role="status"></p>
+  </div>
+</section>
+
+</main>
+<nav>
+  <button data-t="sell" aria-current="page">Sell Today</button>
+  <button data-t="items">Items</button>
+  <button data-t="month">This Month</button>
+  <button data-t="hist">History</button>
+</nav>
+
+<script>
+(function(){
+  "use strict";
+  var K_ITEMS="litreLedger_items",K_SALES="litreLedger_sales";
+  var items=load(K_ITEMS),sales=load(K_SALES),editing=null;
+  function load(k){try{var v=JSON.parse(localStorage.getItem(k));return Array.isArray(v)?v:[];}catch(e){return [];}}
+  function save(){try{localStorage.setItem(K_ITEMS,JSON.stringify(items));localStorage.setItem(K_SALES,JSON.stringify(sales));}catch(e){alert("Could not save. Your browser may be blocking storage.");}}
+  function $(i){return document.getElementById(i);}
+  function pad(n){return String(n).padStart(2,"0");}
+  function todayStr(){var d=new Date();return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+  function r2(n){return Math.round(n*100)/100;}
+  function fmt(n){return Number(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function fl(n){return Number(n).toLocaleString(undefined,{maximumFractionDigits:2});}
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+  function nice(d){return new Date(d+"T00:00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"});}
+  function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;}
+  function msg(id,t,ok){var m=$(id);m.textContent=t;m.className="msg "+(ok?"ok":"err");}
+  function empty(ul,t){var li=el("li");li.appendChild(el("p","empty",t));ul.appendChild(li);}
+  function btn(t,fn,del){var b=el("button","link"+(del?" del":""),t);b.type="button";b.onclick=fn;return b;}
+  function byNewest(a,b){return a.date<b.date?1:a.date>b.date?-1:(b.ts||0)-(a.ts||0);}
+
+  function saleRow(s,showDate){
+    var li=el("li"),l=el("div","l");
+    l.appendChild(el("div","name",s.item));
+    l.appendChild(el("div","meta",(showDate?nice(s.date)+" · ":"")+fl(s.litres)+" L × "+fmt(s.price)));
+    li.appendChild(l);
+    var a=el("div","acts");a.appendChild(el("span","amt",fmt(s.total)));
+    a.appendChild(btn("Delete",function(){if(confirm("Delete this sale of "+fl(s.litres)+" L of "+s.item+"?")){sales=sales.filter(function(x){return x.id!==s.id;});save();render();}},true));
+    li.appendChild(a);return li;
+  }
+  function fillList(ul,arr,showDate,txt){ul.innerHTML="";if(!arr.length)empty(ul,txt);arr.slice().sort(byNewest).forEach(function(s){ul.appendChild(saleRow(s,showDate));});}
+  function sums(arr){var l=0,a=0;arr.forEach(function(s){l+=s.litres;a+=s.total;});return {l:l,a:r2(a)};}
+
+  function render(){
+    $("today").textContent=nice(todayStr());
+    var sel=$("sItem"),cur=sel.value;sel.innerHTML="";
+    if(!items.length){var o=el("option","","Add an item first (Items tab)");o.value="";sel.appendChild(o);}
+    items.forEach(function(it){var o=el("option","",it.name+" – "+fmt(it.price)+" per litre");o.value=it.id;sel.appendChild(o);});
+    if(cur&&items.some(function(i){return i.id===cur;}))sel.value=cur;
+    updatePlaceholder();calc();
+    var td=sales.filter(function(s){return s.date===todayStr();}),ts=sums(td);
+    $("dLit").textContent=fl(ts.l);$("dAmt").textContent=fmt(ts.a);
+    fillList($("dList"),td,false,"No sales recorded today.");
+    var il=$("iList");il.innerHTML="";
+    if(!items.length)empty(il,"No items yet. Add your first item below.");
+    items.forEach(function(it){
+      var li=el("li");
+      if(editing===it.id){
+        var w=el("div","edit"),inp=el("input");inp.type="number";inp.inputMode="decimal";inp.min="0";inp.step="any";inp.value=it.price;inp.setAttribute("aria-label","New price per litre for "+it.name);
+        w.appendChild(inp);
+        w.appendChild(btn("Save",function(){var v=parseFloat(inp.value);if(!(v>=0)){inp.focus();return;}it.price=v;editing=null;save();render();}));
+        w.appendChild(btn("Cancel",function(){editing=null;render();}));
+        var l0=el("div","l");l0.style.width="100%";l0.appendChild(el("div","name",it.name));l0.appendChild(w);li.appendChild(l0);
+      }else{
+        var l=el("div","l");l.appendChild(el("div","name",it.name));l.appendChild(el("div","meta",fmt(it.price)+" per litre"));li.appendChild(l);
+        var a=el("div","acts");
+        a.appendChild(btn("Edit price",function(){editing=it.id;render();}));
+        a.appendChild(btn("Delete",function(){if(confirm("Delete "+it.name+"? Past sales are kept.")){items=items.filter(function(x){return x.id!==it.id;});save();render();}},true));
+        li.appendChild(a);
+      }
+      il.appendChild(li);
+    });
+    var ym=$("mPick").value||todayStr().slice(0,7);
+    var ms=sales.filter(function(s){return s.date.slice(0,7)===ym;}),mt=sums(ms);
+    $("mLit").textContent=fl(mt.l);$("mAmt").textContent=fmt(mt.a);
+    var by={};ms.forEach(function(s){var b=by[s.item]||(by[s.item]={l:0,a:0});b.l+=s.litres;b.a+=s.total;});
+    var bl=$("mBy");bl.innerHTML="";var ks=Object.keys(by).sort(function(a,b){return by[b].a-by[a].a;});
+    if(!ks.length)empty(bl,"No sales in this month.");
+    ks.forEach(function(k){var li=el("li"),l=el("div","l");l.appendChild(el("div","name",k));l.appendChild(el("div","meta",fl(by[k].l)+" litres"));li.appendChild(l);li.appendChild(el("span","amt",fmt(by[k].a)));bl.appendChild(li);});
+    fillList($("mList"),ms,true,"No sales in this month.");
+    fillList($("hList"),sales,true,"No sales yet.");
+  }
+  function updatePlaceholder(){var it=items.filter(function(i){return i.id===$("sItem").value;})[0];$("sPrice").placeholder=it?fmt(it.price):"";}
+  function calc(){
+    var it=items.filter(function(i){return i.id===$("sItem").value;})[0],l=parseFloat($("sLit").value),ov=parseFloat($("sPrice").value);
+    var p=ov>=0?ov:(it?it.price:0);
+    $("sTotal").textContent=(l>0&&it)?fmt(r2(l*p)):"0.00";
+  }
+
+  function go(t){
+    ["sell","items","month","hist"].forEach(function(n){$("t-"+n).classList.toggle("on",n===t);});
+    document.querySelectorAll("nav button").forEach(function(b){if(b.dataset.t===t)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll("nav button").forEach(function(b){b.onclick=function(){go(b.dataset.t);};});
+
+  $("sItem").onchange=function(){updatePlaceholder();calc();};
+  $("sLit").oninput=calc;$("sPrice").oninput=calc;
+  $("sSave").onclick=function(){
+    var it=items.filter(function(i){return i.id===$("sItem").value;})[0],l=parseFloat($("sLit").value),ov=parseFloat($("sPrice").value);
+    if(!it)return msg("sMsg","Add an item first in the Items tab.");
+    if(!(l>0))return msg("sMsg","Enter how many litres were sold.");
+    var p=ov>=0?ov:it.price;
+    sales.push({id:uid(),ts:Date.now(),date:todayStr(),item:it.name,litres:l,price:p,total:r2(l*p)});
+    save();$("sLit").value="";$("sPrice").value="";render();
+    msg("sMsg","Saved: "+fl(l)+" L of "+it.name+" for "+fmt(r2(l*p)),true);
+  };
+
+  $("nAdd").onclick=function(){
+    var n=$("nName").value.trim(),p=parseFloat($("nPrice").value);
+    if(!n)return msg("nMsg","Enter the item name.");
+    if(!(p>=0))return msg("nMsg","Enter the cost of 1 litre.");
+    items.push({id:uid(),name:n,price:p});save();
+    $("nName").value="";$("nPrice").value="";render();msg("nMsg","Added "+n+".",true);
+  };
+
+  $("mPick").value=todayStr().slice(0,7);$("mPick").onchange=render;
+
+  $("exp").onclick=function(){
+    var blob=new Blob([JSON.stringify({app:"litre-ledger",exported:new Date().toISOString(),items:items,sales:sales},null,2)],{type:"application/json"});
+    var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="litre-ledger-backup-"+todayStr()+".json";
+    document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+    msg("bMsg","Backup file created.",true);
+  };
+  $("impBtn").onclick=function(){$("impFile").click();};
+  $("impFile").onchange=function(){
+    var f=this.files[0],inp=this;if(!f)return;
+    var rd=new FileReader();
+    rd.onload=function(){
+      try{
+        var d=JSON.parse(rd.result);
+        if(!d||!Array.isArray(d.items)||!Array.isArray(d.sales))throw 0;
+        var ni=d.items.filter(function(i){return i&&typeof i.name==="string"&&isFinite(i.price);}).map(function(i){return {id:String(i.id||uid()),name:i.name,price:Number(i.price)};});
+        var ns=d.sales.filter(function(s){return s&&typeof s.item==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(s.date)&&isFinite(s.litres)&&isFinite(s.price);}).map(function(s){return {id:String(s.id||uid()),ts:Number(s.ts)||0,date:s.date,item:s.item,litres:Number(s.litres),price:Number(s.price),total:r2(Number(s.litres)*Number(s.price))};});
+        if(confirm("Replace current data with the backup? It has "+ni.length+" items and "+ns.length+" sales.")){items=ni;sales=ns;editing=null;save();render();msg("bMsg","Backup imported.",true);}
+      }catch(e){msg("bMsg","This file is not a valid Litre Ledger backup.");}
+      inp.value="";
+    };
+    rd.readAsText(f);
+  };
+  $("clr").onclick=function(){
+    if(confirm("Delete ALL items and sales from this device? This cannot be undone.")&&confirm("Are you sure? Export a backup first if you may need this data.")){
+      items=[];sales=[];editing=null;save();render();msg("bMsg","All data cleared.",true);
+    }
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>

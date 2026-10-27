@@ -1,0 +1,6 @@
+{
+  "name": "Litre Ledger",
+  "description": "An offline sales ledger to track litre-based sales, daily and monthly earnings, custom items, and JSON backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
