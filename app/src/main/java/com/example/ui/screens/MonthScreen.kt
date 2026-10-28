@@ -1,10 +1,10 @@
 package com.example.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,31 +12,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.LocalDrink
-import androidx.compose.material.icons.filled.Paid
-import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,14 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.data.SaleEntity
+import com.example.data.Shift
 import com.example.ui.ItemMonthBreakdown
 import com.example.ui.LedgerViewModel
-import com.example.ui.Screen
-import com.example.ui.components.ConfirmDeleteDialog
-import com.example.ui.components.EmptyListPlaceholder
-import com.example.ui.components.MetricStatCard
-import com.example.ui.components.SaleRowItem
 import com.example.util.DateUtils
 
 @Composable
@@ -60,34 +53,31 @@ fun MonthScreen(
     viewModel: LedgerViewModel,
     modifier: Modifier = Modifier
 ) {
-    // Back navigation pops to Sell Today
-    BackHandler {
-        viewModel.navigateTo(Screen.SellToday)
-    }
-
     val selectedMonth by viewModel.selectedMonth.collectAsStateWithLifecycle()
-    val monthSales by viewModel.monthSales.collectAsStateWithLifecycle()
     val analytics by viewModel.monthAnalytics.collectAsStateWithLifecycle()
+    val monthShiftFilter by viewModel.monthShiftFilter.collectAsStateWithLifecycle()
     val currencySymbol by viewModel.currencySymbol.collectAsStateWithLifecycle()
-    val useBikramSambat by viewModel.useBikramSambat.collectAsStateWithLifecycle()
+    val useBs by viewModel.useBikramSambat.collectAsStateWithLifecycle()
 
-    var saleToDelete by remember { mutableStateOf<SaleEntity?>(null) }
+    val displayMonth = DateUtils.formatDisplayMonth(selectedMonth, useBs = useBs)
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
+            .testTag("month_screen"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Month Selector Bar
         item {
-            Spacer(modifier = Modifier.height(4.dp))
-            Surface(
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_month_selector"),
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
-                shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth()
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             ) {
                 Row(
                     modifier = Modifier
@@ -98,192 +88,203 @@ fun MonthScreen(
                 ) {
                     IconButton(
                         onClick = { viewModel.previousMonth() },
-                        modifier = Modifier.testTag("prev_month_button")
+                        modifier = Modifier.testTag("btn_prev_month")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Previous Month",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Previous Month"
                         )
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = displayMonth,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = DateUtils.formatDisplayMonth(selectedMonth, useBs = useBikramSambat),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = if (useBs) "Bikram Sambat (वि.सं.)" else "Gregorian Calendar (AD)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
                     IconButton(
                         onClick = { viewModel.nextMonth() },
-                        modifier = Modifier.testTag("next_month_button")
+                        modifier = Modifier.testTag("btn_next_month")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Next Month",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Next Month"
                         )
                     }
                 }
             }
         }
 
-        // Summary Statistics (Litres & Total Amount)
+        // Shift Filter Selector for Month
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                MetricStatCard(
-                    title = "Total litres",
-                    value = DateUtils.formatLitres(analytics.totalLitres),
-                    icon = Icons.Default.LocalDrink,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.weight(1f)
+                Text(
+                    text = "Shift Filter:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
-
-                MetricStatCard(
-                    title = "Total amount",
-                    value = DateUtils.formatAmount(analytics.totalAmount, currencySymbol),
-                    icon = Icons.Default.Paid,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.weight(1f)
+                FilterChip(
+                    selected = monthShiftFilter == "all",
+                    onClick = { viewModel.setMonthShiftFilter("all") },
+                    label = { Text("All Shifts") },
+                    modifier = Modifier.testTag("month_filter_all")
                 )
+                Shift.values().forEach { shift ->
+                    FilterChip(
+                        selected = monthShiftFilter == shift.id,
+                        onClick = { viewModel.setMonthShiftFilter(shift.id) },
+                        label = { Text("${shift.iconName} ${shift.titleEn}") },
+                        modifier = Modifier.testTag("month_filter_${shift.id}")
+                    )
+                }
             }
         }
 
-        // Secondary monthly metrics (Sales count & Avg price/L)
+        // Overview Key Metrics Grid
         item {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MetricStatCard(
+                        title = "Total Litres Sold",
+                        value = DateUtils.formatLitres(analytics.totalLitres),
+                        icon = Icons.Default.LocalDrink,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricStatCard(
+                        title = "Total Revenue",
+                        value = DateUtils.formatAmount(analytics.totalAmount, currencySymbol),
+                        icon = Icons.Default.Payments,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MetricStatCard(
+                        title = "Sales Recorded",
+                        value = "${analytics.salesCount}",
+                        icon = Icons.Default.ReceiptLong,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricStatCard(
+                        title = "Avg Price / Litre",
+                        value = DateUtils.formatAmount(analytics.avgPricePerLitre, currencySymbol),
+                        icon = Icons.Default.BarChart,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // Shift Breakdown for the Month
+        item {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_month_shift_breakdown"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
+                        .padding(14.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Total Sales",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(
+                        text = "Monthly Shift Distribution",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ShiftPill(
+                            shift = Shift.MORNING,
+                            litres = analytics.morningLitres,
+                            modifier = Modifier.weight(1f)
                         )
-                        Text(
-                            text = "${analytics.salesCount}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                        ShiftPill(
+                            shift = Shift.NOON,
+                            litres = analytics.noonLitres,
+                            modifier = Modifier.weight(1f)
                         )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Avg Price / Litre",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${DateUtils.formatAmount(analytics.avgPricePerLitre, currencySymbol)}/L",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                        ShiftPill(
+                            shift = Shift.EVENING,
+                            litres = analytics.eveningLitres,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
         }
 
-        // Breakdown by Item Section
+        // Item Breakdown Header
         item {
             Text(
-                text = "By item",
-                style = MaterialTheme.typography.titleLarge,
+                text = "Sales by Liquid / Dairy Item",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
 
         if (analytics.breakdowns.isEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    EmptyListPlaceholder(
-                        message = "No sales in this month.",
-                        icon = Icons.Default.PieChart
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No sales recorded in $displayMonth.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         } else {
-            items(analytics.breakdowns, key = { it.itemName }) { itemBreakdown ->
-                ItemBreakdownCard(
-                    breakdown = itemBreakdown,
+            items(analytics.breakdowns, key = { it.itemName }) { itemData ->
+                ItemBreakdownRowCard(
+                    breakdown = itemData,
                     currencySymbol = currencySymbol
-                )
-            }
-        }
-
-        // All sales this month Section
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "All sales this month",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (monthSales.isNotEmpty()) {
-                    Text(
-                        text = "${monthSales.size} sales",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        if (monthSales.isEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    EmptyListPlaceholder(
-                        message = "No sales recorded for ${DateUtils.formatDisplayMonth(selectedMonth, useBs = useBikramSambat)}.",
-                        icon = Icons.AutoMirrored.Filled.ReceiptLong
-                    )
-                }
-            }
-        } else {
-            items(monthSales, key = { it.id }) { sale ->
-                SaleRowItem(
-                    sale = sale,
-                    currencySymbol = currencySymbol,
-                    showDate = true,
-                    onDelete = { saleToDelete = sale }
                 )
             }
         }
@@ -292,29 +293,57 @@ fun MonthScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+}
 
-    // Delete sale confirmation dialog
-    saleToDelete?.let { sale ->
-        ConfirmDeleteDialog(
-            title = "Delete Sale",
-            message = "Delete this sale of ${DateUtils.formatLitres(sale.litres)} of ${sale.item} on ${DateUtils.formatDisplayDate(sale.date)} for ${DateUtils.formatAmount(sale.total, currencySymbol)}?",
-            onConfirm = { viewModel.deleteSale(sale) },
-            onDismiss = { saleToDelete = null }
+@Composable
+fun ShiftPill(
+    shift: Shift,
+    litres: Double,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = shift.iconName, fontSize = 20.sp)
+            Text(
+                text = shift.titleEn,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = DateUtils.formatLitres(litres),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
 @Composable
-fun ItemBreakdownCard(
-    breakdown: ItemMonthBreakdown,
-    currencySymbol: String,
+fun MetricStatCard(
+    title: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    ElevatedCard(
+        modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        modifier = modifier.fillMaxWidth()
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(
             modifier = Modifier
@@ -326,36 +355,92 @@ fun ItemBreakdownCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = breakdown.itemName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = DateUtils.formatLitres(breakdown.litres),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = DateUtils.formatAmount(breakdown.amount, currencySymbol),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "${(breakdown.percentageOfTotalAmount * 100).toInt()}% share",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+fun ItemBreakdownRowCard(
+    breakdown: ItemMonthBreakdown,
+    currencySymbol: String
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("item_breakdown_${breakdown.itemName}"),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = breakdown.itemName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = DateUtils.formatAmount(breakdown.amount, currencySymbol),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "${DateUtils.formatLitres(breakdown.litres)} total volume",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val pctText = "${(breakdown.percentageOfTotalAmount * 100).toInt()}% of sales"
+                Text(
+                    text = pctText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             LinearProgressIndicator(
-                progress = { breakdown.percentageOfTotalAmount.coerceIn(0f, 1f) },
+                progress = { breakdown.percentageOfTotalAmount },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)

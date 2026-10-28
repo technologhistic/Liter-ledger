@@ -10,7 +10,12 @@ import com.example.data.AppDatabase
 import com.example.data.ItemEntity
 import com.example.data.LedgerRepository
 import com.example.data.SaleEntity
+import com.example.data.Shift
+import com.example.util.AppUpdateInfo
+import com.example.util.AppUpdateManager
 import com.example.util.DateUtils
+import com.example.util.UpdateStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,14 +24,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 
 enum class Screen(val title: String) {
     SellToday("Sell Today"),
     Items("Items"),
     ThisMonth("This Month"),
-    History("History")
+    History("History"),
+    Updates("Updates")
 }
 
 data class DayHistoryGroup(
@@ -36,7 +48,17 @@ data class DayHistoryGroup(
     val totalLitres: Double,
     val totalAmount: Double,
     val salesCount: Int,
+    val morningLitres: Double,
+    val noonLitres: Double,
+    val eveningLitres: Double,
     val sales: List<SaleEntity>
+)
+
+data class ShiftSummary(
+    val shift: Shift,
+    val litres: Double = 0.0,
+    val amount: Double = 0.0,
+    val count: Int = 0
 )
 
 data class ItemMonthBreakdown(
@@ -51,6 +73,9 @@ data class MonthAnalytics(
     val totalAmount: Double = 0.0,
     val salesCount: Int = 0,
     val avgPricePerLitre: Double = 0.0,
+    val morningLitres: Double = 0.0,
+    val noonLitres: Double = 0.0,
+    val eveningLitres: Double = 0.0,
     val breakdowns: List<ItemMonthBreakdown> = emptyList()
 )
 
@@ -64,6 +89,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val db = AppDatabase.getDatabase(application)
     private val repository = LedgerRepository(db.itemDao(), db.saleDao())
     private val prefs = application.getSharedPreferences("litre_ledger_prefs", Context.MODE_PRIVATE)
+
+    val updateManager = AppUpdateManager(application)
+    val updateStatus: StateFlow<UpdateStatus> = updateManager.updateStatus
+    val updateManifestUrl: StateFlow<String> = updateManager.updateManifestUrl
 
     private val _currentScreen = MutableStateFlow(Screen.SellToday)
     val currentScreen: StateFlow<Screen> = _currentScreen.asStateFlow()
@@ -90,9 +119,42 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val _todayDate = MutableStateFlow(DateUtils.getTodayDate())
     val todayDate: StateFlow<String> = _todayDate.asStateFlow()
 
+    // Active Shift for logging sales
+    private val _activeShift = MutableStateFlow(Shift.currentShift())
+    val activeShift: StateFlow<Shift> = _activeShift.asStateFlow()
+
+    // Shift filter on Today's list: "all", "morning", "noon", "evening"
+    private val _todayShiftFilter = MutableStateFlow("all")
+    val todayShiftFilter: StateFlow<String> = _todayShiftFilter.asStateFlow()
+
     val todaySales: StateFlow<List<SaleEntity>> = combine(allSales, _todayDate) { sales, today ->
         sales.filter { it.date == today }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val filteredTodaySales: StateFlow<List<SaleEntity>> = combine(todaySales, _todayShiftFilter) { sales, filter ->
+        if (filter == "all") {
+            sales
+        } else {
+            sales.filter { it.shift == filter }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Shift summaries for today
+    val todayShiftSummaries: StateFlow<Map<Shift, ShiftSummary>> = todaySales.map { sales ->
+        val map = mutableMapOf<Shift, ShiftSummary>()
+        for (shift in Shift.values()) {
+            val shiftSales = sales.filter { it.shift == shift.id }
+            val litres = DateUtils.roundToTwoDecimals(shiftSales.sumOf { it.litres })
+            val amount = DateUtils.roundToTwoDecimals(shiftSales.sumOf { it.total })
+            map[shift] = ShiftSummary(
+                shift = shift,
+                litres = litres,
+                amount = amount,
+                count = shiftSales.size
+            )
+        }
+        map
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Sell tab inputs
     private val _selectedItemId = MutableStateFlow<String?>(null)
@@ -111,22 +173,34 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedMonth = MutableStateFlow(DateUtils.getCurrentBsMonth())
     val selectedMonth: StateFlow<String> = _selectedMonth.asStateFlow()
 
-    val monthSales: StateFlow<List<SaleEntity>> = combine(allSales, _selectedMonth, _useBikramSambat) { sales, month, isBs ->
-        if (isBs) {
+    private val _monthShiftFilter = MutableStateFlow("all")
+    val monthShiftFilter: StateFlow<String> = _monthShiftFilter.asStateFlow()
+
+    val monthSales: StateFlow<List<SaleEntity>> = combine(allSales, _selectedMonth, _useBikramSambat, _monthShiftFilter) { sales, month, isBs, shiftFilter ->
+        val inMonth = if (isBs) {
             sales.filter { DateUtils.getBsDate(it.date).yearMonthKey == month }
         } else {
             sales.filter { it.date.startsWith(month) }
         }
+        if (shiftFilter == "all") inMonth else inMonth.filter { it.shift == shiftFilter }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val monthAnalytics: StateFlow<MonthAnalytics> = monthSales.combine(allItems) { sales, _ ->
         var totalLit = 0.0
         var totalAmt = 0.0
-        val byItem = mutableMapOf<String, Pair<Double, Double>>() // Name -> (litres, total)
+        var mornLit = 0.0
+        var noonLit = 0.0
+        var eveLit = 0.0
+        val byItem = mutableMapOf<String, Pair<Double, Double>>()
 
         for (sale in sales) {
             totalLit += sale.litres
             totalAmt += sale.total
+            when (sale.shift) {
+                Shift.MORNING.id -> mornLit += sale.litres
+                Shift.NOON.id -> noonLit += sale.litres
+                Shift.EVENING.id -> eveLit += sale.litres
+            }
             val current = byItem[sale.item] ?: Pair(0.0, 0.0)
             byItem[sale.item] = Pair(current.first + sale.litres, current.second + sale.total)
         }
@@ -152,6 +226,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             totalAmount = roundedAmt,
             salesCount = sales.size,
             avgPricePerLitre = avgPrice,
+            morningLitres = DateUtils.roundToTwoDecimals(mornLit),
+            noonLitres = DateUtils.roundToTwoDecimals(noonLit),
+            eveningLitres = DateUtils.roundToTwoDecimals(eveLit),
             breakdowns = breakdowns
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MonthAnalytics())
@@ -160,15 +237,23 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val filteredHistorySales: StateFlow<List<SaleEntity>> = combine(allSales, _searchQuery) { sales, query ->
+    private val _historyShiftFilter = MutableStateFlow("all")
+    val historyShiftFilter: StateFlow<String> = _historyShiftFilter.asStateFlow()
+
+    val filteredHistorySales: StateFlow<List<SaleEntity>> = combine(allSales, _searchQuery, _historyShiftFilter) { sales, query, shiftFilter ->
+        val shiftFiltered = if (shiftFilter == "all") sales else sales.filter { it.shift == shiftFilter }
         if (query.isBlank()) {
-            sales
+            shiftFiltered
         } else {
             val q = query.trim().lowercase()
-            sales.filter { sale ->
+            shiftFiltered.filter { sale ->
                 val bs = DateUtils.getBsDate(sale.date)
+                val shiftObj = Shift.fromId(sale.shift)
                 sale.item.lowercase().contains(q) ||
                 sale.date.contains(q) ||
+                sale.shift.contains(q) ||
+                shiftObj.titleEn.lowercase().contains(q) ||
+                shiftObj.titleNp.contains(q) ||
                 bs.formattedBsDate.lowercase().contains(q) ||
                 bs.monthNameEn.lowercase().contains(q) ||
                 bs.monthNameNp.contains(q) ||
@@ -184,6 +269,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             .map { (date, groupSales) ->
                 val totalLit = DateUtils.roundToTwoDecimals(groupSales.sumOf { it.litres })
                 val totalAmt = DateUtils.roundToTwoDecimals(groupSales.sumOf { it.total })
+                val mornLit = DateUtils.roundToTwoDecimals(groupSales.filter { it.shift == Shift.MORNING.id }.sumOf { it.litres })
+                val noonLit = DateUtils.roundToTwoDecimals(groupSales.filter { it.shift == Shift.NOON.id }.sumOf { it.litres })
+                val eveLit = DateUtils.roundToTwoDecimals(groupSales.filter { it.shift == Shift.EVENING.id }.sumOf { it.litres })
                 val formattedDateAndDay = DateUtils.formatFullDateAndDay(date, useBs = isBs)
                 val dayOfWeek = DateUtils.formatDayOfWeek(date)
                 DayHistoryGroup(
@@ -193,6 +281,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     totalLitres = totalLit,
                     totalAmount = totalAmt,
                     salesCount = groupSales.size,
+                    morningLitres = mornLit,
+                    noonLitres = noonLit,
+                    eveningLitres = eveLit,
                     sales = groupSales.sortedByDescending { it.timestamp }
                 )
             }
@@ -200,12 +291,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        // Automatically select the first item when items load if none selected
         viewModelScope.launch {
             allItems.collect { items ->
                 if (_selectedItemId.value == null && items.isNotEmpty()) {
                     _selectedItemId.value = items.first().id
                 }
+            }
+        }
+
+        if (updateManager.autoCheck.value) {
+            viewModelScope.launch {
+                updateManager.checkForUpdates()
             }
         }
     }
@@ -215,8 +311,24 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         _statusMessage.value = null
     }
 
+    fun setActiveShift(shift: Shift) {
+        _activeShift.value = shift
+    }
+
+    fun setTodayShiftFilter(filter: String) {
+        _todayShiftFilter.value = filter
+    }
+
+    fun setMonthShiftFilter(filter: String) {
+        _monthShiftFilter.value = filter
+    }
+
+    fun setHistoryShiftFilter(filter: String) {
+        _historyShiftFilter.value = filter
+    }
+
     fun setCurrency(symbol: String) {
-        val sym = symbol.trim().ifEmpty { "$" }
+        val sym = symbol.trim().ifEmpty { "Rs." }
         _currencySymbol.value = sym
         prefs.edit().putString("currency_symbol", sym).apply()
     }
@@ -272,19 +384,24 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         val customPrice = _priceInput.value.toDoubleOrNull()
         val effectivePrice = if (customPrice != null && customPrice >= 0.0) customPrice else selectedItem.price
         val total = DateUtils.roundToTwoDecimals(litres * effectivePrice)
+        val shift = _activeShift.value
 
         viewModelScope.launch {
             repository.insertSale(
                 date = _todayDate.value,
                 itemName = selectedItem.name,
                 litres = litres,
-                price = effectivePrice
+                price = effectivePrice,
+                shift = shift.id
             )
             _litresInput.value = ""
             _priceInput.value = ""
             val formattedLitres = DateUtils.formatLitres(litres)
             val formattedAmt = DateUtils.formatAmount(total, _currencySymbol.value)
-            _statusMessage.value = SaleStatusMessage("Saved: $formattedLitres of ${selectedItem.name} for $formattedAmt", true)
+            _statusMessage.value = SaleStatusMessage(
+                "Saved: $formattedLitres of ${selectedItem.name} for $formattedAmt (${shift.displayName})",
+                true
+            )
         }
     }
 
@@ -407,36 +524,127 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun shareDailyReport(context: Context) {
+    fun shareDailyReport(context: Context, shiftFilter: String = "all") {
         val today = _todayDate.value
-        val sales = todaySales.value
+        val allToday = todaySales.value
+        val sales = if (shiftFilter == "all") allToday else allToday.filter { it.shift == shiftFilter }
         val totalLit = sales.sumOf { it.litres }
         val totalAmt = sales.sumOf { it.total }
         val sym = _currencySymbol.value
 
+        val shiftLabel = if (shiftFilter == "all") "All Shifts (दिनभर)" else Shift.fromId(shiftFilter).displayName
+
         val sb = StringBuilder()
-        sb.append("📊 Litre Ledger Daily Report - ").append(DateUtils.formatDisplayDate(today)).append("\n\n")
-        sb.append("Total Litres Sold: ").append(DateUtils.formatLitres(totalLit)).append("\n")
-        sb.append("Total Amount: ").append(DateUtils.formatAmount(totalAmt, sym)).append("\n")
-        sb.append("Total Sales: ").append(sales.size).append("\n\n")
+        sb.append("📊 Litre Ledger Daily Report\n")
+        sb.append("📅 Date: ").append(DateUtils.formatDisplayDate(today)).append(" (").append(DateUtils.formatDayOfWeek(today)).append(")\n")
+        sb.append("⏰ Shift: ").append(shiftLabel).append("\n\n")
+        sb.append("🥛 Total Litres Sold: ").append(DateUtils.formatLitres(totalLit)).append("\n")
+        sb.append("💰 Total Amount: ").append(DateUtils.formatAmount(totalAmt, sym)).append("\n")
+        sb.append("📝 Transactions: ").append(sales.size).append("\n\n")
+
+        if (shiftFilter == "all") {
+            val morn = allToday.filter { it.shift == Shift.MORNING.id }
+            val noon = allToday.filter { it.shift == Shift.NOON.id }
+            val eve = allToday.filter { it.shift == Shift.EVENING.id }
+            sb.append("Shift Breakdown:\n")
+            sb.append("• 🌅 Morning (बिहान): ").append(DateUtils.formatLitres(morn.sumOf { it.litres })).append(" | ").append(DateUtils.formatAmount(morn.sumOf { it.total }, sym)).append("\n")
+            sb.append("• ☀️ Noon (दिउँसो): ").append(DateUtils.formatLitres(noon.sumOf { it.litres })).append(" | ").append(DateUtils.formatAmount(noon.sumOf { it.total }, sym)).append("\n")
+            sb.append("• 🌙 Evening (बेलुका): ").append(DateUtils.formatLitres(eve.sumOf { it.litres })).append(" | ").append(DateUtils.formatAmount(eve.sumOf { it.total }, sym)).append("\n\n")
+        }
 
         if (sales.isNotEmpty()) {
-            sb.append("Sales Breakdown:\n")
+            sb.append("Sales Records:\n")
             sales.forEachIndexed { i, s ->
-                sb.append("${i + 1}. ${s.item}: ${DateUtils.formatLitres(s.litres)} @ $sym${s.price} = $sym${s.total} (${DateUtils.formatTime(s.timestamp)})\n")
+                val sShift = Shift.fromId(s.shift)
+                sb.append("${i + 1}. ${s.item} (${sShift.titleEn}): ${DateUtils.formatLitres(s.litres)} @ $sym${s.price} = $sym${s.total} [${DateUtils.formatTime(s.timestamp)}]\n")
             }
         } else {
-            sb.append("No sales recorded today.\n")
+            sb.append("No sales recorded for this shift.\n")
         }
 
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
-            putExtra(Intent.EXTRA_TITLE, "Daily Sales Report")
+            putExtra(Intent.EXTRA_TITLE, "Daily Sales Report - $shiftLabel")
             putExtra(Intent.EXTRA_TEXT, sb.toString())
             type = "text/plain"
         }
         val chooser = Intent.createChooser(sendIntent, "Share Daily Report")
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(chooser)
+    }
+
+    // Remote Update methods
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            updateManager.checkForUpdates()
+        }
+    }
+
+    fun downloadAndInstallUpdate(apkUrl: String) {
+        viewModelScope.launch {
+            updateManager.downloadAndInstallApk(apkUrl)
+        }
+    }
+
+    fun dismissUpdate() {
+        updateManager.dismissUpdate()
+    }
+
+    fun setUpdateManifestUrl(url: String) {
+        updateManager.setUpdateManifestUrl(url)
+    }
+
+    fun promptApkInstall(file: File) {
+        updateManager.promptApkInstall(file)
+    }
+
+    // Remote Catalog / Price Sync across devices
+    fun syncCatalogFromRemote(jsonUrl: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder().url(jsonUrl).build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    withContext(Dispatchers.Main) {
+                        onResult(false, "Failed to fetch prices: HTTP ${response.code}")
+                    }
+                    return@launch
+                }
+                val body = response.body?.string() ?: ""
+                val json = JSONObject(body)
+                val itemsArray = json.optJSONArray("items") ?: JSONArray()
+                val updatedItems = mutableListOf<ItemEntity>()
+                for (i in 0 until itemsArray.length()) {
+                    val obj = itemsArray.getJSONObject(i)
+                    val name = obj.optString("name", "").trim()
+                    val price = obj.optDouble("price", 0.0)
+                    if (name.isNotEmpty() && price >= 0) {
+                        val existing = allItems.value.find { it.name.equals(name, ignoreCase = true) }
+                        updatedItems.add(
+                            ItemEntity(
+                                id = existing?.id ?: java.util.UUID.randomUUID().toString(),
+                                name = name,
+                                price = price
+                            )
+                        )
+                    }
+                }
+                if (updatedItems.isNotEmpty()) {
+                    db.itemDao().insertAll(updatedItems)
+                    withContext(Dispatchers.Main) {
+                        onResult(true, "Synced ${updatedItems.size} items and latest prices successfully!")
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onResult(false, "No valid items found in remote catalog.")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, "Sync failed: ${e.localizedMessage ?: "Unknown error"}")
+                }
+            }
+        }
     }
 }

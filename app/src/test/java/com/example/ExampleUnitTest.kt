@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.data.Shift
 import com.example.util.BikramSambatCalendar
 import com.example.util.DateUtils
 import org.junit.Assert.assertEquals
@@ -61,5 +62,26 @@ class ExampleUnitTest {
 
         val display = BikramSambatCalendar.formatBsMonthDisplay("2083-07")
         assertTrue(display.contains("Kartik 2083 BS"))
+    }
+
+    @Test
+    fun shift_enumsAndLabels_workProperly() {
+        assertEquals("morning", Shift.MORNING.id)
+        assertEquals("noon", Shift.NOON.id)
+        assertEquals("evening", Shift.EVENING.id)
+
+        assertEquals(Shift.MORNING, Shift.fromId("morning"))
+        assertEquals(Shift.NOON, Shift.fromId("noon"))
+        assertEquals(Shift.EVENING, Shift.fromId("evening"))
+        assertEquals(Shift.MORNING, Shift.fromId("बिहान"))
+        assertEquals(Shift.NOON, Shift.fromId("दिउँसो"))
+        assertEquals(Shift.EVENING, Shift.fromId("बेलुका"))
+
+        assertEquals("Morning", Shift.MORNING.titleEn)
+        assertEquals("बिहान", Shift.MORNING.titleNp)
+        assertEquals("Noon", Shift.NOON.titleEn)
+        assertEquals("दिउँसो", Shift.NOON.titleNp)
+        assertEquals("Evening", Shift.EVENING.titleEn)
+        assertEquals("बेलुका", Shift.EVENING.titleNp)
     }
 }

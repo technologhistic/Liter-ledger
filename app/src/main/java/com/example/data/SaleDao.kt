@@ -15,6 +15,9 @@ interface SaleDao {
     @Query("SELECT * FROM sales WHERE date = :date ORDER BY timestamp DESC")
     fun getSalesForDate(date: String): Flow<List<SaleEntity>>
 
+    @Query("SELECT * FROM sales WHERE date = :date AND shift = :shift ORDER BY timestamp DESC")
+    fun getSalesForDateAndShift(date: String, shift: String): Flow<List<SaleEntity>>
+
     @Query("SELECT * FROM sales WHERE date LIKE :monthPrefix || '%' ORDER BY timestamp DESC")
     fun getSalesForMonth(monthPrefix: String): Flow<List<SaleEntity>>
 

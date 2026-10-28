@@ -13,5 +13,6 @@ data class SaleEntity(
     val item: String, // Name of the item
     val litres: Double,
     val price: Double,
-    val total: Double // litres * price rounded
+    val total: Double, // litres * price rounded
+    val shift: String = "morning" // "morning", "noon", "evening"
 )

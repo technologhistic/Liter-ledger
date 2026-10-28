@@ -20,6 +20,9 @@ class LedgerRepository(
     fun getSalesForDate(date: String): Flow<List<SaleEntity>> =
         saleDao.getSalesForDate(date)
 
+    fun getSalesForDateAndShift(date: String, shift: String): Flow<List<SaleEntity>> =
+        saleDao.getSalesForDateAndShift(date, shift)
+
     fun getSalesForMonth(monthPrefix: String): Flow<List<SaleEntity>> =
         saleDao.getSalesForMonth(monthPrefix)
 
@@ -52,7 +55,8 @@ class LedgerRepository(
         date: String,
         itemName: String,
         litres: Double,
-        price: Double
+        price: Double,
+        shift: String = "morning"
     ): SaleEntity = withContext(Dispatchers.IO) {
         val roundedTotal = kotlin.math.round(litres * price * 100.0) / 100.0
         val sale = SaleEntity(
@@ -62,7 +66,8 @@ class LedgerRepository(
             item = itemName,
             litres = litres,
             price = price,
-            total = roundedTotal
+            total = roundedTotal,
+            shift = shift.lowercase().trim()
         )
         saleDao.insertSale(sale)
         sale
@@ -96,6 +101,7 @@ class LedgerRepository(
         withContext(Dispatchers.Default) {
             val root = JSONObject()
             root.put("app", "litre-ledger")
+            root.put("version", 2)
             val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
             root.put("exported", isoFormat.format(Date()))
 
@@ -119,6 +125,7 @@ class LedgerRepository(
                 obj.put("litres", sale.litres)
                 obj.put("price", sale.price)
                 obj.put("total", sale.total)
+                obj.put("shift", sale.shift)
                 salesArray.put(obj)
             }
             root.put("sales", salesArray)
@@ -154,6 +161,7 @@ class LedgerRepository(
             val price = obj.optDouble("price", 0.0)
             val total = obj.optDouble("total", litres * price)
             val ts = obj.optLong("ts", System.currentTimeMillis())
+            val shift = obj.optString("shift", "morning").lowercase().trim()
             val id = if (obj.has("id")) obj.optString("id") else UUID.randomUUID().toString()
 
             if (item.isNotEmpty() && litres > 0.0 && date.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) {
@@ -165,7 +173,8 @@ class LedgerRepository(
                         item = item,
                         litres = litres,
                         price = price,
-                        total = kotlin.math.round(total * 100.0) / 100.0
+                        total = kotlin.math.round(total * 100.0) / 100.0,
+                        shift = if (shift.isNotBlank()) shift else "morning"
                     )
                 )
             }

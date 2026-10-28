@@ -2,6 +2,7 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -25,13 +26,18 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalDrink
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocalDrink
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -54,7 +60,9 @@ import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.ItemsScreen
 import com.example.ui.screens.MonthScreen
 import com.example.ui.screens.SellTodayScreen
+import com.example.ui.screens.UpdatesScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.util.UpdateStatus
 
 class MainActivity : ComponentActivity() {
 
@@ -83,11 +91,20 @@ data class NavTabItem(
 @Composable
 fun LitreLedgerApp(viewModel: LedgerViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
+    val updateStatus by viewModel.updateStatus.collectAsStateWithLifecycle()
+    val hasUpdateAvailable = updateStatus is UpdateStatus.Available
+
+    // Handle back button to return to SellToday if on another tab
+    if (currentScreen != Screen.SellToday) {
+        BackHandler {
+            viewModel.navigateTo(Screen.SellToday)
+        }
+    }
 
     val tabs = listOf(
         NavTabItem(
             screen = Screen.SellToday,
-            label = "Sell Today",
+            label = "Sell",
             selectedIcon = Icons.Filled.LocalDrink,
             unselectedIcon = Icons.Outlined.LocalDrink,
             testTag = "tab_sell_today"
@@ -101,7 +118,7 @@ fun LitreLedgerApp(viewModel: LedgerViewModel) {
         ),
         NavTabItem(
             screen = Screen.ThisMonth,
-            label = "This Month",
+            label = "Month",
             selectedIcon = Icons.Filled.BarChart,
             unselectedIcon = Icons.Outlined.BarChart,
             testTag = "tab_this_month"
@@ -112,6 +129,13 @@ fun LitreLedgerApp(viewModel: LedgerViewModel) {
             selectedIcon = Icons.Filled.History,
             unselectedIcon = Icons.Outlined.History,
             testTag = "tab_history"
+        ),
+        NavTabItem(
+            screen = Screen.Updates,
+            label = "Updates",
+            selectedIcon = Icons.Filled.SystemUpdate,
+            unselectedIcon = Icons.Outlined.SystemUpdate,
+            testTag = "tab_updates"
         )
     )
 
@@ -130,10 +154,30 @@ fun LitreLedgerApp(viewModel: LedgerViewModel) {
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Text(
-                            text = "Offline Liquid & Sales Ledger",
+                            text = "Liquid & Dairy Sales (BS Calendar)",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                         )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.navigateTo(Screen.Updates) },
+                        modifier = Modifier.testTag("topbar_btn_updates")
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (hasUpdateAvailable) {
+                                    Badge { Text("1") }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = "Updates",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -157,17 +201,27 @@ fun LitreLedgerApp(viewModel: LedgerViewModel) {
                         selected = isSelected,
                         onClick = { viewModel.navigateTo(tab.screen) },
                         icon = {
-                            Icon(
-                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tab.label,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            if (tab.screen == Screen.Updates && hasUpdateAvailable) {
+                                BadgedBox(badge = { Badge { Text("!") } }) {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.label,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            } else {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tab.label,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         },
                         label = {
                             Text(
                                 text = tab.label,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 12.sp
+                                fontSize = 11.sp
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
@@ -199,6 +253,7 @@ fun LitreLedgerApp(viewModel: LedgerViewModel) {
                     Screen.Items -> ItemsScreen(viewModel = viewModel)
                     Screen.ThisMonth -> MonthScreen(viewModel = viewModel)
                     Screen.History -> HistoryScreen(viewModel = viewModel)
+                    Screen.Updates -> UpdatesScreen(viewModel = viewModel)
                 }
             }
         }

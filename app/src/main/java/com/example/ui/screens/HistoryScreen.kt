@@ -1,17 +1,14 @@
 package com.example.ui.screens
 
-import android.net.Uri
-import androidx.activity.compose.BackHandler
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,30 +19,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LocalDrink
-import androidx.compose.material.icons.filled.Paid
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -53,8 +45,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -73,617 +62,279 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.SaleEntity
+import com.example.data.Shift
 import com.example.ui.DayHistoryGroup
 import com.example.ui.LedgerViewModel
-import com.example.ui.Screen
-import com.example.ui.components.ConfirmDeleteDialog
-import com.example.ui.components.EmptyListPlaceholder
-import com.example.ui.components.SaleRowItem
 import com.example.util.DateUtils
-
-enum class HistoryViewMode {
-    DayByDay,
-    DailySummaryOnly,
-    AllList
-}
 
 @Composable
 fun HistoryScreen(
     viewModel: LedgerViewModel,
     modifier: Modifier = Modifier
 ) {
-    // Back navigation pops to Sell Today
-    BackHandler {
-        viewModel.navigateTo(Screen.SellToday)
-    }
-
     val context = LocalContext.current
-    val sales by viewModel.filteredHistorySales.collectAsStateWithLifecycle()
-    val dayGroups by viewModel.historyGroupedByDay.collectAsStateWithLifecycle()
-    val allSales by viewModel.allSales.collectAsStateWithLifecycle()
+    val historyGroups by viewModel.historyGroupedByDay.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val historyShiftFilter by viewModel.historyShiftFilter.collectAsStateWithLifecycle()
     val currencySymbol by viewModel.currencySymbol.collectAsStateWithLifecycle()
-    val useBikramSambat by viewModel.useBikramSambat.collectAsStateWithLifecycle()
+    val useBs by viewModel.useBikramSambat.collectAsStateWithLifecycle()
 
-    var viewMode by remember { mutableStateOf(HistoryViewMode.DayByDay) }
-    var saleToDelete by remember { mutableStateOf<SaleEntity?>(null) }
-    var showClearDialogFirst by remember { mutableStateOf(false) }
-    var showClearDialogSecond by remember { mutableStateOf(false) }
-    var showCurrencyDialog by remember { mutableStateOf(false) }
-    var backupStatusMsg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
 
-    // Track collapsed days (optional convenience for user)
-    var collapsedDays by remember { mutableStateOf(setOf<String>()) }
-
-    // File picker for exporting JSON
-    val exportLauncher = rememberLauncherForActivityResult(
+    // File launcher for exporting JSON backup
+    val exportFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri: Uri? ->
+    ) { uri ->
         if (uri != null) {
             viewModel.exportBackup(context, targetUri = uri) { success, msg ->
-                backupStatusMsg = Pair(msg, success)
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // File picker for importing JSON
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
+    // File launcher for importing JSON backup
+    val importFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
         if (uri != null) {
-            viewModel.importBackup(context, uri, replaceExisting = true) { success, msg ->
-                backupStatusMsg = Pair(msg, success)
+            viewModel.importBackup(context, uri = uri, replaceExisting = false) { success, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             }
         }
     }
-
-    val totalMatchingLitres = sales.sumOf { it.litres }
-    val totalMatchingAmount = sales.sumOf { it.total }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .testTag("history_screen"),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Search & Filter Bar
+        // Search bar
         item {
-            Spacer(modifier = Modifier.height(4.dp))
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
-                placeholder = { Text("Search by day, date (YYYY-MM-DD), or item...") },
+                label = { Text("Search sales by item, date (BS/AD), day, shift...") },
+                placeholder = { Text("e.g. Buffalo Milk, Kartik, Friday, बिहान") },
                 leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(imageVector = Icons.Default.Search, contentDescription = "Search")
                 },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear search")
                         }
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("history_search_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                )
+                    .testTag("input_history_search")
             )
         }
 
-        // Aggregate Summary Header when sales exist
-        if (sales.isNotEmpty()) {
-            item {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 1.dp,
-                    shadowElevation = 0.5.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Total Volume Sold",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = DateUtils.formatLitres(totalMatchingLitres),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Days Active",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "${dayGroups.size} days",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "Total Amount",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = DateUtils.formatAmount(totalMatchingAmount, currencySymbol),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // View Mode Filter Chips
+        // Shift Filter Selector
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilterChip(
-                    selected = viewMode == HistoryViewMode.DayByDay,
-                    onClick = { viewMode = HistoryViewMode.DayByDay },
-                    label = { Text("By Day & Date", fontWeight = FontWeight.SemiBold) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.CalendarToday,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(10.dp)
+                Text(
+                    text = "Shift:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
-
                 FilterChip(
-                    selected = viewMode == HistoryViewMode.DailySummaryOnly,
-                    onClick = { viewMode = HistoryViewMode.DailySummaryOnly },
-                    label = { Text("Daily Totals", fontWeight = FontWeight.SemiBold) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(10.dp)
+                    selected = historyShiftFilter == "all",
+                    onClick = { viewModel.setHistoryShiftFilter("all") },
+                    label = { Text("All") },
+                    modifier = Modifier.testTag("history_filter_shift_all")
                 )
-
-                FilterChip(
-                    selected = viewMode == HistoryViewMode.AllList,
-                    onClick = { viewMode = HistoryViewMode.AllList },
-                    label = { Text("All Items", fontWeight = FontWeight.SemiBold) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                )
-            }
-        }
-
-        // Empty state
-        if (sales.isEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    EmptyListPlaceholder(
-                        message = if (searchQuery.isBlank()) "No sales recorded yet." else "No sales matching \"$searchQuery\".",
-                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                        actionLabel = if (searchQuery.isNotEmpty()) "Clear Filter" else null,
-                        onAction = { viewModel.setSearchQuery("") }
+                Shift.values().forEach { shift ->
+                    FilterChip(
+                        selected = historyShiftFilter == shift.id,
+                        onClick = { viewModel.setHistoryShiftFilter(shift.id) },
+                        label = { Text("${shift.iconName} ${shift.titleEn}") },
+                        modifier = Modifier.testTag("history_filter_shift_${shift.id}")
                     )
                 }
             }
-        } else {
-            when (viewMode) {
-                // Mode 1: Day by Day with Date & Day header, daily sold totals, and item details
-                HistoryViewMode.DayByDay -> {
-                    dayGroups.forEach { dayGroup ->
-                        val isCollapsed = collapsedDays.contains(dayGroup.date)
-
-                        item(key = "header_${dayGroup.date}") {
-                            DayGroupHeaderCard(
-                                dayGroup = dayGroup,
-                                currencySymbol = currencySymbol,
-                                useBs = useBikramSambat,
-                                isCollapsed = isCollapsed,
-                                onToggleCollapse = {
-                                    collapsedDays = if (isCollapsed) {
-                                        collapsedDays - dayGroup.date
-                                    } else {
-                                        collapsedDays + dayGroup.date
-                                    }
-                                }
-                            )
-                        }
-
-                        if (!isCollapsed) {
-                            items(dayGroup.sales, key = { it.id }) { sale ->
-                                SaleRowItem(
-                                    sale = sale,
-                                    currencySymbol = currencySymbol,
-                                    showDate = false, // Date & Day is prominent in the group header
-                                    onDelete = { saleToDelete = sale },
-                                    modifier = Modifier.padding(start = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Mode 2: Daily Totals overview cards (Date, Day, How much sold)
-                HistoryViewMode.DailySummaryOnly -> {
-                    items(dayGroups, key = { it.date }) { dayGroup ->
-                        DailySummaryCard(
-                            dayGroup = dayGroup,
-                            currencySymbol = currencySymbol,
-                            useBs = useBikramSambat,
-                            onViewDetails = {
-                                viewModel.setSearchQuery(dayGroup.date)
-                                viewMode = HistoryViewMode.DayByDay
-                            }
-                        )
-                    }
-                }
-
-                // Mode 3: Chronological list of all sales with full date and day
-                HistoryViewMode.AllList -> {
-                    items(sales, key = { it.id }) { sale ->
-                        SaleRowItem(
-                            sale = sale,
-                            currencySymbol = currencySymbol,
-                            showDate = true, // Shows full date and day e.g. "Monday, 27 Oct 2026"
-                            onDelete = { saleToDelete = sale }
-                        )
-                    }
-                }
-            }
         }
 
-        // Backup and Data Management Card
+        // Backup and Data Management Actions
         item {
-            Spacer(modifier = Modifier.height(10.dp))
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                modifier = Modifier.fillMaxWidth()
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("card_backup_actions"),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(12.dp)
                 ) {
                     Text(
-                        text = "Backup and data",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        text = "Data Backup & Export",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
                     )
-
-                    Text(
-                        text = "Export your items and sales as a JSON backup file, restore from an existing file, or configure settings.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    // Export JSON File Button
-                    Button(
-                        onClick = {
-                            val defaultFileName = "litre-ledger-backup-${DateUtils.getTodayDate()}.json"
-                            exportLauncher.launch(defaultFileName)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("export_backup_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Export backup (JSON file)", fontWeight = FontWeight.Bold)
-                    }
+                        OutlinedButton(
+                            onClick = {
+                                exportFileLauncher.launch("litre_ledger_backup_${DateUtils.getTodayDate()}.json")
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_export_backup"),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Export Backup", fontSize = 12.sp)
+                        }
 
-                    // Share JSON text Button
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.exportBackup(context, shareText = true) { success, msg ->
-                                backupStatusMsg = Pair(msg, success)
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Share backup via app", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    // Import Backup Button
-                    OutlinedButton(
-                        onClick = {
-                            importLauncher.launch(arrayOf("application/json", "text/*"))
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("import_backup_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Upload,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Import backup", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    // Calendar System Toggle Button
-                    OutlinedButton(
-                        onClick = { viewModel.toggleCalendarSystem() },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (useBikramSambat) "Calendar: Bikram Sambat (BS) • Active" else "Calendar: Gregorian (AD)",
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    // Currency Setting Button
-                    OutlinedButton(
-                        onClick = { showCurrencyDialog = true },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AttachMoney,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Currency Symbol: $currencySymbol", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    // Clear All Data Button (Danger)
-                    OutlinedButton(
-                        onClick = { showClearDialogFirst = true },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("clear_data_button"),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        ),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.error)
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteForever,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Clear all data", fontWeight = FontWeight.Bold)
-                    }
-
-                    // Backup Status Message
-                    AnimatedVisibility(
-                        visible = backupStatusMsg != null,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        backupStatusMsg?.let { (msg, isOk) ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isOk) Color(0xFFDCFCE7) else Color(0xFFFEE2E2),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isOk) Icons.Default.CheckCircle else Icons.Default.Info,
-                                        contentDescription = null,
-                                        tint = if (isOk) Color(0xFF15803D) else Color(0xFFB91C1C),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = msg,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isOk) Color(0xFF15803D) else Color(0xFFB91C1C)
-                                    )
-                                }
-                            }
+                        OutlinedButton(
+                            onClick = { importFileLauncher.launch("application/json") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("btn_import_backup"),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Import Backup", fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
 
+        // Empty state
+        if (historyGroups.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (searchQuery.isNotBlank() || historyShiftFilter != "all") "No sales match your search/filter." else "No sales history recorded yet.",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Recorded sales will be organized by Date and Day here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        } else {
+            // Day by Day Groups
+            items(historyGroups, key = { it.date }) { dayGroup ->
+                DayHistoryCard(
+                    dayGroup = dayGroup,
+                    currencySymbol = currencySymbol,
+                    onDeleteSale = { viewModel.deleteSale(it) }
+                )
+            }
+        }
+
+        // Danger zone clear data
         item {
-            Spacer(modifier = Modifier.height(24.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Reset All Ledger Records",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Deletes all items and sales history on this device.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { showClearConfirmDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.testTag("btn_clear_all_data")
+                    ) {
+                        Text(text = "Reset", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
-    // Delete single sale dialog
-    saleToDelete?.let { sale ->
-        ConfirmDeleteDialog(
-            title = "Delete Sale",
-            message = "Delete this sale of ${DateUtils.formatLitres(sale.litres)} of ${sale.item} on ${DateUtils.formatFullDateAndDay(sale.date)}?",
-            onConfirm = { viewModel.deleteSale(sale) },
-            onDismiss = { saleToDelete = null }
-        )
-    }
-
-    // First clear warning dialog
-    if (showClearDialogFirst) {
-        ConfirmDeleteDialog(
-            title = "Clear All Data?",
-            message = "Delete ALL items and sales from this device? This action cannot be undone.",
-            confirmText = "Continue",
-            onConfirm = {
-                showClearDialogFirst = false
-                showClearDialogSecond = true
-            },
-            onDismiss = { showClearDialogFirst = false }
-        )
-    }
-
-    // Second clear confirmation dialog
-    if (showClearDialogSecond) {
-        ConfirmDeleteDialog(
-            title = "Are you absolutely sure?",
-            message = "Export a backup first if you may need this data. All records will be wiped immediately.",
-            confirmText = "Clear Everything",
-            onConfirm = {
-                viewModel.clearAllData {
-                    backupStatusMsg = Pair("All data cleared from device.", true)
-                }
-            },
-            onDismiss = { showClearDialogSecond = false }
-        )
-    }
-
-    // Currency selector dialog
-    if (showCurrencyDialog) {
-        var customCurrency by remember { mutableStateOf(currencySymbol) }
-        val commonCurrencies = listOf("Rs.", "रू", "₹", "$", "€", "£", "₨", "¥")
-
+    if (showClearConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { showCurrencyDialog = false },
-            title = { Text("Choose Currency Symbol", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Select a preset or enter a custom currency symbol:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        commonCurrencies.take(4).forEach { sym ->
-                            FilterChip(
-                                selected = customCurrency == sym,
-                                onClick = { customCurrency = sym },
-                                label = { Text(sym, fontWeight = FontWeight.Bold) }
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        commonCurrencies.drop(4).forEach { sym ->
-                            FilterChip(
-                                selected = customCurrency == sym,
-                                onClick = { customCurrency = sym },
-                                label = { Text(sym, fontWeight = FontWeight.Bold) }
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = customCurrency,
-                        onValueChange = { customCurrency = it },
-                        label = { Text("Custom Currency") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
+            onDismissRequest = { showClearConfirmDialog = false },
+            title = { Text("Reset All Data?") },
+            text = { Text("Are you sure you want to delete all sales and item records? Make sure you exported a backup first.") },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
-                        viewModel.setCurrency(customCurrency)
-                        showCurrencyDialog = false
-                    }
+                        viewModel.clearAllData {
+                            showClearConfirmDialog = false
+                            Toast.makeText(context, "All data reset successfully", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Save", fontWeight = FontWeight.Bold)
+                    Text("Delete Everything")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCurrencyDialog = false }) {
+                TextButton(onClick = { showClearConfirmDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -691,214 +342,197 @@ fun HistoryScreen(
     }
 }
 
-/**
- * Dedicated Card displaying the Date, Day of the Week, and Daily Sales Totals
- */
 @Composable
-fun DayGroupHeaderCard(
+fun DayHistoryCard(
     dayGroup: DayHistoryGroup,
     currencySymbol: String,
-    useBs: Boolean,
-    isCollapsed: Boolean,
-    onToggleCollapse: () -> Unit,
-    modifier: Modifier = Modifier
+    onDeleteSale: (SaleEntity) -> Unit
 ) {
-    Card(
-        modifier = modifier
+    ElevatedCard(
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggleCollapse() },
+            .testTag("day_group_${dayGroup.date}"),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(14.dp)
         ) {
+            // Day & Date Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Day and Date Display
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = dayGroup.dayOfWeek.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-
-                    Text(
-                        text = DateUtils.formatDisplayDate(dayGroup.date, useBs = useBs),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "${dayGroup.salesCount} sale${if (dayGroup.salesCount > 1) "s" else ""}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                    )
                     Icon(
-                        imageVector = if (isCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = if (isCollapsed) "Expand" else "Collapse",
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = "Date and Day",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = dayGroup.formattedDateAndDay,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${dayGroup.salesCount} transactions",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Daily grand total
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = DateUtils.formatAmount(dayGroup.totalAmount, currencySymbol),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = DateUtils.formatLitres(dayGroup.totalLitres),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // How much was sold on this date and day
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Shift breakdown pills
+            if (dayGroup.morningLitres > 0 || dayGroup.noonLitres > 0 || dayGroup.eveningLitres > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.LocalDrink,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Sold:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                    )
-                    Text(
-                        text = DateUtils.formatLitres(dayGroup.totalLitres),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    if (dayGroup.morningLitres > 0) {
+                        ShiftBadge(
+                            shift = Shift.MORNING,
+                            litres = dayGroup.morningLitres,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (dayGroup.noonLitres > 0) {
+                        ShiftBadge(
+                            shift = Shift.NOON,
+                            litres = dayGroup.noonLitres,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (dayGroup.eveningLitres > 0) {
+                        ShiftBadge(
+                            shift = Shift.EVENING,
+                            litres = dayGroup.eveningLitres,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
+            }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Paid,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Earned:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                    )
-                    Text(
-                        text = DateUtils.formatAmount(dayGroup.totalAmount, currencySymbol),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+            Spacer(modifier = Modifier.height(10.dp))
+            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Sales list inside this day
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                dayGroup.sales.forEach { sale ->
+                    val shiftObj = Shift.fromId(sale.shift)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = sale.item,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${shiftObj.iconName} ${shiftObj.titleEn}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "${DateUtils.formatLitres(sale.litres)} @ $currencySymbol${sale.price}/L • ${DateUtils.formatTime(sale.timestamp)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = DateUtils.formatAmount(sale.total, currencySymbol),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = { onDeleteSale(sale) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * Compact Daily Totals card showing date, day of week, and total sold
- */
 @Composable
-fun DailySummaryCard(
-    dayGroup: DayHistoryGroup,
-    currencySymbol: String,
-    useBs: Boolean,
-    onViewDetails: () -> Unit,
+fun ShiftBadge(
+    shift: Shift,
+    litres: Double,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .clickable { onViewDetails() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = dayGroup.dayOfWeek,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Text(
-                        text = DateUtils.formatDisplayDate(dayGroup.date, useBs = useBs),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${dayGroup.salesCount} sale${if (dayGroup.salesCount > 1) "s" else ""}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = DateUtils.formatLitres(dayGroup.totalLitres),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = DateUtils.formatAmount(dayGroup.totalAmount, currencySymbol),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
+        Text(
+            text = "${shift.iconName} ${shift.titleEn}: ${DateUtils.formatLitres(litres)}",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     }
 }
